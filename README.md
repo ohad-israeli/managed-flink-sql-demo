@@ -28,8 +28,7 @@ developer experience (ANSI SQL, Python, Java, a browser workspace, the CLI, VS C
 security shared with the rest of Confluent Platform, one control plane across clusters and
 regions, and enterprise support included. This repo puts that pitch to a direct test: does
 submitting a real join, with a real backend, actually stay pure SQL — no JAR, no
-Dockerfile, no hand-rolled JobManager call? It does, with a few real gotchas along the way
-(below).
+Dockerfile, no hand-rolled JobManager call? It does.
 
 ## The key idea: CMF Statement, not job
 
@@ -73,50 +72,6 @@ export CONFLUENT_CMF_URL=http://localhost:8080
 - `scripts/run-statements.sh` — submits all six SQL files in order as named CMF Statements.
 - **[`WALKTHROUGH.md`](WALKTHROUGH.md)** — a full narrated tour with the exact commands,
   real captured output, and screenshot-cued steps through all three UIs.
-
-## Real findings
-
-- **`CREATE TABLE ... AS SELECT` isn't supported on Kafka catalogs.** CMF rejects it
-  outright: `"CREATE TABLE AS is not supported on Kafka catalog"`. The fix is the standard
-  two-step Flink SQL pattern: an explicit `CREATE TABLE` for the output table, then a
-  separate `INSERT INTO ... SELECT` to populate it continuously.
-
-- **No built-in demo catalog on self-managed CMF.** Confluent Cloud's
-  `examples.marketplace` catalog doesn't exist here — every catalog has to be a real
-  **Kafka Catalog**, explicitly registered against an actual Kafka cluster and Schema
-  Registry.
-
-- **A persistent, misleading "This server does not host this topic-partition" error** —
-  the kind that looks like a broker-level partition-assignment bug. A long diagnostic pass
-  ruled out connectivity, DNS, listener configuration, and CPU contention, all clean. The
-  actual cause: a CMF Statement's lifecycle record is scoped to its owning Environment, but
-  the CMF **environment/catalog objects themselves** had accumulated inconsistent state
-  from being repeatedly re-registered against different backing Kafka clusters over the
-  course of debugging. A completely fresh environment/catalog/compute-pool (new names,
-  nothing reused) fixed it immediately.
-
-- **A `KafkaDatabase`'s `ddlEnvironments` allowlist is a separate permission gate from
-  catalog registration.** Registering a catalog and being allowed to run DDL against it are
-  two different steps — `CREATE TABLE` failed with `"This environment does not have CREATE
-  TABLE permissions for database ..."` even though the environment could already query the
-  catalog, because `ddlEnvironments` still listed an old, deleted environment name. It
-  doesn't update itself when an environment is renamed or recreated — that's on you.
-
-- **Statements and Applications aren't the same resource type, and the CMF UI reflects
-  that.** Applications get a full Events Log tab; Statements don't have one at all —
-  instead they expose an **Exceptions** view (`GET /statements/{name}/exceptions`, backed
-  by real `StatementException` records). Not a missing feature — a deliberate distinction
-  between the two resource types.
-
-- **CP 8.x quietly retired the classic Control Center image.**
-  `confluentinc/cp-enterprise-control-center` tops out at `7.9.10` on Docker Hub — CP 8.x
-  ships `cp-enterprise-control-center-next-gen` instead. An official-looking reference
-  manifest that still points at the classic image name will pull-fail on a current CP line.
-
-- **Flink's transactional Kafka sink needs `transaction.max.timeout.ms` raised** above the
-  Kafka broker's default, or the sink fails with `"The transaction timeout is larger than
-  the maximum value allowed by the broker."` A gap even Confluent's own official
-  single-node reference manifest doesn't cover.
 
 ## Cost
 
